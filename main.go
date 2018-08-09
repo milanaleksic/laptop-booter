@@ -3,11 +3,23 @@ package main
 import (
 	"flag"
 	"log"
-
-	"github.com/milanaleksic/amtgo/amt"
+	"net"
+	"strconv"
+	"time"
 )
 
 const localForwardedPort = 16888
+
+const (
+	// CmdStatus will print the power state and check if main SSH port is there
+	CmdStatus = "status"
+	// CmdUp will do AMT "powerup" the machine and then decrypt the disk
+	// FIXME: NYI - activate
+	CmdActivate = "activate"
+	// CmdShutdown will execute "shutdown -h now" on the remote system
+	// FIXME: NYI - shutdown
+	CmdShutdown = "shutdown"
+)
 
 func main() {
 	username := flag.String("username", "", "Username for the AMT interface")
@@ -17,6 +29,8 @@ func main() {
 	bastionPort := flag.Int("bastionPort", 22, "Bastion port")
 	amtHost := flag.String("amtHost", "", "AMT computer hostname")
 	amtPort := flag.Int("amtPort", 16992, "AMT computer port")
+
+	command := flag.String("command", "", "Command (one of: status, up, down, decrypt)")
 	flag.Parse()
 
 	localEndpoint := &Endpoint{
@@ -49,12 +63,22 @@ func main() {
 
 	go tunnel.Start()
 
-	options := amt.Optionset{
-		SwSkipcertchk: 1,
-		SwUseTLS:      0,
-		Username:      *username,
-		Password:      *password,
-		Port:          localForwardedPort,
+	for {
+		conn, _ := net.DialTimeout("tcp", net.JoinHostPort("localhost", strconv.Itoa(localForwardedPort)), 10*time.Millisecond)
+		if conn != nil {
+			conn.Close()
+			break
+		}
 	}
-	amt.CliCommand(amt.CmdInfo, []string{"localhost"}, options)
+
+	switch *command {
+	case CmdStatus:
+		log.Println("Command chosen: show status")
+		printAmtStatus(*username, *password)
+	case CmdActivate:
+	case CmdShutdown:
+		log.Println("NYI!")
+	default:
+		log.Fatalf("Unknown command '%s'", *command)
+	}
 }
