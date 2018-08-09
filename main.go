@@ -2,12 +2,10 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log"
 	"time"
 
 	"github.com/milanaleksic/amtgo/amt"
-	"golang.org/x/crypto/ssh"
 )
 
 const localForwardedPort = 16888
@@ -37,10 +35,11 @@ func main() {
 		Port: *amtPort,
 	}
 
-	sshConfig, err := SSHConfigFromAgent()
+	closer, sshConfig, err := SSHConfigFromAgent()
 	if err != nil {
 		log.Fatalf("Failed to create ssh configuration: %v", err)
 	}
+	defer closer()
 
 	tunnel := &SSHTunnel{
 		Config: sshConfig,
@@ -49,13 +48,7 @@ func main() {
 		Remote: remoteEndpoint,
 	}
 
-	_, err = ssh.Dial("tcp", bastion.String(), sshConfig)
-	if err != nil {
-		fmt.Printf("Server dial error: %s\n", err)
-		return
-	}
-
-	tunnel.Start()
+	go tunnel.Start()
 
 	// FIXME: correct waiting handshake algo, not this hardcoded one
 	time.Sleep(3 * time.Second)
