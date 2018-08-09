@@ -8,6 +8,7 @@ import (
 func main() {
 	username := flag.String("username", "", "Username for the AMT interface")
 	password := flag.String("password", "", "Password for the AMT interface")
+	flag.Parse()
 
 	options := amt.Optionset{
 		SwSkipcertchk: 1,
