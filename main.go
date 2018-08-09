@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"log"
-	"time"
 
 	"github.com/milanaleksic/amtgo/amt"
 )
@@ -49,11 +48,6 @@ func main() {
 	}
 
 	go tunnel.Start()
-
-	// FIXME: correct waiting handshake algo, not this hardcoded one
-	time.Sleep(3 * time.Second)
-
-	// FIXME: graceful termination!
 
 	options := amt.Optionset{
 		SwSkipcertchk: 1,
