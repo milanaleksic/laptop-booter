@@ -31,6 +31,7 @@ type Optionset struct {
 	OptTimeout     int    `json:"opt_timeout" db:"opt_timeout"`
 	OptPassfile    string `json:"opt_passfile" db:"opt_passfile"`
 	OptCacertfile  string `json:"opt_cacertfile" db:"opt_cacertfile"`
+	Port           int    `json:"port"`
 	Username       string `json:"username"` // amtgo only
 	Password       string `json:"-"`        // amtgo only
 	CliDelay       int    `json:"-" db:"-"`

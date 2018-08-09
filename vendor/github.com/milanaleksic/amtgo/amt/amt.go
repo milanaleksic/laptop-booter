@@ -93,6 +93,9 @@ func Command(host Laststate, cmd string, options Optionset) (result Laststate) {
 		amtTLSskipCertCheck = true
 	}
 	result = host
+	if options.Port != 0 {
+		amtPort = strconv.Itoa(options.Port)
+	}
 
 	cmdPayload, _ := Asset(command.CommandOne)
 	uri := amtProto + "://" + host.Hostname + ":" + amtPort + "/wsman"
