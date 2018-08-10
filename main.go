@@ -2,8 +2,10 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"net"
+	"os"
 	"strconv"
 	"time"
 )
@@ -74,10 +76,34 @@ func main() {
 	switch *command {
 	case CmdStatus:
 		log.Println("Command chosen: show status")
-		printAmtStatus(*username, *password)
+		status := getAmtStatus(*username, *password)
+		if status.StateHTTP != 200 {
+			log.Printf("Wrong response code from server: %v", status.StateHTTP)
+			os.Exit(1)
+		}
+		fmt.Println(legacyPowerstateTextMap[status.StateAMT])
 	case CmdActivate:
+		status := getAmtStatus(*username, *password)
+		if status.StateHTTP != 200 {
+			log.Printf("Wrong response code from server: %v", status.StateHTTP)
+			os.Exit(1)
+		}
+		if status.StateAMT == amtStateOn {
+			log.Println("System is already active and on")
+			os.Exit(1)
+		}
+		log.Fatal("NYI!")
 	case CmdShutdown:
-		log.Println("NYI!")
+		status := getAmtStatus(*username, *password)
+		if status.StateHTTP != 200 {
+			log.Printf("Wrong response code from server: %v", status.StateHTTP)
+			os.Exit(1)
+		}
+		if status.StateAMT == amtStateSoftOff {
+			log.Println("System is already turned off")
+			os.Exit(1)
+		}
+		log.Fatal("NYI!")
 	default:
 		log.Fatalf("Unknown command '%s'", *command)
 	}
