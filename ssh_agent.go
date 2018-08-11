@@ -12,7 +12,7 @@ import (
 	"golang.org/x/crypto/ssh/agent"
 )
 
-func SSHConfigFromAgent() (closer func(), client *ssh.ClientConfig, err error) {
+func SSHConfigFromAgent() (closer func(), clientConfig *ssh.ClientConfig, err error) {
 	var signers []ssh.Signer
 	agentConn, err := net.Dial("unix", os.Getenv("SSH_AUTH_SOCK"))
 	if err != nil {
@@ -20,17 +20,17 @@ func SSHConfigFromAgent() (closer func(), client *ssh.ClientConfig, err error) {
 	}
 	sshAgent := agent.NewClient(agentConn)
 	signers, err = sshAgent.Signers()
-	log.Printf("Signers available in the SSH Agent: %+v, user: %v", len(signers), os.Getenv("USER"))
+	log.Printf("Signers available in the SSH Agent: %+v, user: %v", len(signers), getCurrentUser())
 	if err != nil {
 		return nil, nil, err
 	}
 	closer = func() {
 		agentConn.Close()
 	}
-	client = &ssh.ClientConfig{
-		User:            os.Getenv("USER"),
+	clientConfig = &ssh.ClientConfig{
+		User:            getCurrentUser(),
 		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signers...)},
-		Timeout:         30 * time.Second,
+		Timeout:         5 * time.Second,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 	return

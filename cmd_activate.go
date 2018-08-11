@@ -17,5 +17,5 @@ func setPowerStateOn(username string, password string) {
 	var client amt.Laststate
 	client.Hostname = "localhost"
 	result := amt.Command(client, amt.CmdUp, options)
-	fmt.Printf("%+v", result)
+	fmt.Printf("State after initiating power ON: %+v\n", result)
 }

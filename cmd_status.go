@@ -1,6 +1,8 @@
 package main
 
 import (
+	"log"
+
 	"github.com/milanaleksic/amtgo/amt"
 )
 
@@ -32,6 +34,7 @@ var legacyPowerstateTextMap = map[int]string{
 }
 
 func getAmtStatus(username, password string) amt.Laststate {
+	log.Println("Fetching current AMT state")
 	options := amt.Optionset{
 		SwSkipcertchk: 1,
 		SwUseTLS:      0,

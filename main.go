@@ -1,18 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"log"
 	"os"
-	"strconv"
-	"time"
-
-	"bytes"
 
 	"golang.org/x/crypto/ssh"
 )
 
+const localRealSSHPort = 16887
 const localAmtPort = 16888
 const localDropbearPort = 16889
 
@@ -20,10 +18,8 @@ const (
 	// CmdStatus will print the power state and check if main SSH port is there
 	CmdStatus = "status"
 	// CmdUp will do AMT "powerup" the machine and then decrypt the disk
-	// FIXME: NYI - activate
 	CmdActivate = "activate"
 	// CmdShutdown will execute "shutdown -h now" on the remote system
-	// FIXME: NYI - shutdown
 	CmdShutdown = "shutdown"
 )
 
@@ -37,8 +33,9 @@ func main() {
 	amtPort := flag.Int("amtPort", 16992, "AMT computer port")
 	dropbearHost := flag.String("dropbearHost", "", "Dropbear (SSH) computer hostname")
 	dropbearPort := flag.Int("dropbearPort", 4748, "Dropbear (SSH) computer port")
+	realSSHHost := flag.String("realSSHHost", "", "Real SSH computer hostname")
+	realSSHPort := flag.Int("realSSHPort", 22, "Real SSH computer port")
 	diskUnlockPassword := flag.String("diskUnlockPassword", "", "Disk unlock password")
-
 	command := flag.String("command", "", "Command (one of: status, up, down, decrypt)")
 	flag.Parse()
 
@@ -82,6 +79,20 @@ func main() {
 	}
 	dropbearTunnel.Activate()
 
+	realSSHTunnel := &SSHTunnel{
+		Config: sshConfig,
+		Local: &Endpoint{
+			Host: "localhost",
+			Port: localRealSSHPort,
+		},
+		Mediator: bastion,
+		Remote: &Endpoint{
+			Host: *realSSHHost,
+			Port: *realSSHPort,
+		},
+	}
+	realSSHTunnel.Activate()
+
 	switch *command {
 	case CmdStatus:
 		log.Println("Command chosen: show status")
@@ -93,65 +104,73 @@ func main() {
 		fmt.Println(legacyPowerstateTextMap[status.StateAMT])
 	case CmdActivate:
 		log.Println("Command chosen: activate")
-		//status := getAmtStatus(*username, *password)
-		//if status.StateHTTP != 200 {
-		//	log.Printf("Wrong response code from server: %v", status.StateHTTP)
-		//	os.Exit(1)
-		//}
-		//if status.StateAMT == amtStateOn {
-		//	log.Println("System is already on, ignoring poweron instruction")
-		//} else {
-		//	log.Println("Activating AMT poweron function")
-		//	setPowerStateOn(*username, *password)
-		//}
+		status := getAmtStatus(*username, *password)
+		if status.StateHTTP != 200 {
+			log.Printf("Wrong response code from server when fetching status: %v", status.StateHTTP)
+			os.Exit(1)
+		}
+		if status.StateAMT == amtStateOn {
+			log.Println("System is already on, ignoring poweron instruction")
+		} else {
+			log.Println("Activating AMT poweron function")
+			setPowerStateOn(*username, *password)
+		}
 
-		// waiting for the dropbear to connect
-		sshConfigForDropbear := *sshConfig
-		sshConfigForDropbear.User = "root"
-		var serverConn *ssh.Client
-		for {
-			serverConn, err = ssh.Dial("tcp", "localhost:"+strconv.Itoa(localDropbearPort), &sshConfigForDropbear)
+		if singleCheckSSHConnectivityViaLocalPort(localRealSSHPort, getCurrentUser(), sshConfig) {
+			log.Println("System's real SSH is already on, ignoring disk decryption voodoo")
+		} else {
+			log.Println("System's real SSH is not available, reaching out to dropbear to unlock")
+			dropbearConn := awaitSSHConnectivityViaLocalPort(localDropbearPort, "root", sshConfig)
+			log.Printf("Dropbear active!")
+			defer dropbearConn.Close()
+			session, err := dropbearConn.NewSession()
 			if err != nil {
-				log.Printf("Dropbear still not ready: %s", err)
-				time.Sleep(1 * time.Second)
-			} else {
-				break
+				log.Fatalf("Failed to create new ssh session: %v", err)
 			}
+			unlockDisk(diskUnlockPassword, session)
+			_ = awaitSSHConnectivityViaLocalPort(localRealSSHPort, getCurrentUser(), sshConfig)
+			log.Printf("Real SSH active! Leaving the program")
 		}
-		log.Printf("Dropbear active!")
-		defer serverConn.Close()
-		session, err := serverConn.NewSession()
-		if err != nil {
-			log.Fatalf("Failed to create new ssh session: %v", err)
-		}
-		var b bytes.Buffer
-		b.WriteString(*diskUnlockPassword)
-		session.Stdin = &b
-		log.Printf("Sending disk unlock password!")
-		output, err := session.Output("cryptroot-unlock")
-		if err != nil {
-			log.Fatalf("Unlock call failed: %v", err)
-		}
-		log.Println(string(output))
-		// TODO: await real SSH port open and leave program with success
+		os.Exit(0)
 	case CmdShutdown:
 		log.Println("Command chosen: shutdown")
 		status := getAmtStatus(*username, *password)
 		if status.StateHTTP != 200 {
-			log.Printf("Wrong response code from server: %v", status.StateHTTP)
+			log.Printf("Wrong response code from server when fetching status: %v", status.StateHTTP)
 			os.Exit(1)
 		}
 		if status.StateAMT == amtStateSoftOff {
 			log.Println("System is already turned off")
-			os.Exit(0)
+		} else if singleCheckSSHConnectivityViaLocalPort(localRealSSHPort, getCurrentUser(), sshConfig) {
+			log.Println("System's real SSH is already on, proceeding with SSH-driven turn off")
+			realSSHConn := awaitSSHConnectivityViaLocalPort(localRealSSHPort, getCurrentUser(), sshConfig)
+			defer realSSHConn.Close()
+			session, err := realSSHConn.NewSession()
+			if err != nil {
+				log.Fatalf("Failed to create new ssh session: %v", err)
+			}
+			err = session.Start("sudo shutdown -h now")
+			if err != nil {
+				log.Fatalf("Shutdown call failed: %v", err)
+			}
 		} else {
 			log.Println("Activating AMT poweroff function")
-			// FIXME: if dropbear ssh port is active, turn off via amt
 			setPowerStateOff(*username, *password)
-			// FIXME: if main ssh port is active, turn off via "shutdown -h now" ssh command
 		}
-		log.Fatal("NYI!")
+		os.Exit(0)
 	default:
 		log.Fatalf("Unknown command '%s'", *command)
 	}
+}
+
+func unlockDisk(diskUnlockPassword *string, session *ssh.Session) {
+	var b bytes.Buffer
+	b.WriteString(*diskUnlockPassword)
+	session.Stdin = &b
+	log.Printf("Sending disk unlock password!")
+	output, err := session.CombinedOutput("cryptroot-unlock")
+	if err != nil {
+		log.Fatalf("Unlock call failed: %v", err)
+	}
+	log.Println(string(output))
 }
