@@ -4,13 +4,17 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"net"
 	"os"
 	"strconv"
 	"time"
+
+	"bytes"
+
+	"golang.org/x/crypto/ssh"
 )
 
-const localForwardedPort = 16888
+const localAmtPort = 16888
+const localDropbearPort = 16889
 
 const (
 	// CmdStatus will print the power state and check if main SSH port is there
@@ -31,47 +35,52 @@ func main() {
 	bastionPort := flag.Int("bastionPort", 22, "Bastion port")
 	amtHost := flag.String("amtHost", "", "AMT computer hostname")
 	amtPort := flag.Int("amtPort", 16992, "AMT computer port")
+	dropbearHost := flag.String("dropbearHost", "", "Dropbear (SSH) computer hostname")
+	dropbearPort := flag.Int("dropbearPort", 4748, "Dropbear (SSH) computer port")
+	diskUnlockPassword := flag.String("diskUnlockPassword", "", "Disk unlock password")
 
 	command := flag.String("command", "", "Command (one of: status, up, down, decrypt)")
 	flag.Parse()
-
-	localEndpoint := &Endpoint{
-		Host: "localhost",
-		Port: localForwardedPort,
-	}
 
 	bastion := &Endpoint{
 		Host: *bastionHost,
 		Port: *bastionPort,
 	}
 
-	remoteEndpoint := &Endpoint{
-		Host: *amtHost,
-		Port: *amtPort,
-	}
-
-	closer, sshConfig, err := SSHConfigFromAgent()
+	// My use case: always demand ssh agent, no private local files allowed (I use Yubikey)
+	sshAgentCloser, sshConfig, err := SSHConfigFromAgent()
 	if err != nil {
 		log.Fatalf("Failed to create ssh configuration: %v", err)
 	}
-	defer closer()
+	defer sshAgentCloser()
 
-	tunnel := &SSHTunnel{
+	amtTunnel := &SSHTunnel{
 		Config: sshConfig,
-		Local:  localEndpoint,
-		Server: bastion,
-		Remote: remoteEndpoint,
+		Local: &Endpoint{
+			Host: "localhost",
+			Port: localAmtPort,
+		},
+		Mediator: bastion,
+		Remote: &Endpoint{
+			Host: *amtHost,
+			Port: *amtPort,
+		},
 	}
+	amtTunnel.Activate()
 
-	go tunnel.Start()
-
-	for {
-		conn, _ := net.DialTimeout("tcp", net.JoinHostPort("localhost", strconv.Itoa(localForwardedPort)), 10*time.Millisecond)
-		if conn != nil {
-			conn.Close()
-			break
-		}
+	dropbearTunnel := &SSHTunnel{
+		Config: sshConfig,
+		Local: &Endpoint{
+			Host: "localhost",
+			Port: localDropbearPort,
+		},
+		Mediator: bastion,
+		Remote: &Endpoint{
+			Host: *dropbearHost,
+			Port: *dropbearPort,
+		},
 	}
+	dropbearTunnel.Activate()
 
 	switch *command {
 	case CmdStatus:
@@ -83,17 +92,50 @@ func main() {
 		}
 		fmt.Println(legacyPowerstateTextMap[status.StateAMT])
 	case CmdActivate:
-		status := getAmtStatus(*username, *password)
-		if status.StateHTTP != 200 {
-			log.Printf("Wrong response code from server: %v", status.StateHTTP)
-			os.Exit(1)
+		log.Println("Command chosen: activate")
+		//status := getAmtStatus(*username, *password)
+		//if status.StateHTTP != 200 {
+		//	log.Printf("Wrong response code from server: %v", status.StateHTTP)
+		//	os.Exit(1)
+		//}
+		//if status.StateAMT == amtStateOn {
+		//	log.Println("System is already on, ignoring poweron instruction")
+		//} else {
+		//	log.Println("Activating AMT poweron function")
+		//	setPowerStateOn(*username, *password)
+		//}
+
+		// waiting for the dropbear to connect
+		sshConfigForDropbear := *sshConfig
+		sshConfigForDropbear.User = "root"
+		var serverConn *ssh.Client
+		for {
+			serverConn, err = ssh.Dial("tcp", "localhost:"+strconv.Itoa(localDropbearPort), &sshConfigForDropbear)
+			if err != nil {
+				log.Printf("Dropbear still not ready: %s", err)
+				time.Sleep(1 * time.Second)
+			} else {
+				break
+			}
 		}
-		if status.StateAMT == amtStateOn {
-			log.Println("System is already active and on")
-			os.Exit(1)
+		log.Printf("Dropbear active!")
+		defer serverConn.Close()
+		session, err := serverConn.NewSession()
+		if err != nil {
+			log.Fatalf("Failed to create new ssh session: %v", err)
 		}
-		log.Fatal("NYI!")
+		var b bytes.Buffer
+		b.WriteString(*diskUnlockPassword)
+		session.Stdin = &b
+		log.Printf("Sending disk unlock password!")
+		output, err := session.Output("cryptroot-unlock")
+		if err != nil {
+			log.Fatalf("Unlock call failed: %v", err)
+		}
+		log.Println(string(output))
+		// TODO: await real SSH port open and leave program with success
 	case CmdShutdown:
+		log.Println("Command chosen: shutdown")
 		status := getAmtStatus(*username, *password)
 		if status.StateHTTP != 200 {
 			log.Printf("Wrong response code from server: %v", status.StateHTTP)
@@ -101,7 +143,12 @@ func main() {
 		}
 		if status.StateAMT == amtStateSoftOff {
 			log.Println("System is already turned off")
-			os.Exit(1)
+			os.Exit(0)
+		} else {
+			log.Println("Activating AMT poweroff function")
+			// FIXME: if dropbear ssh port is active, turn off via amt
+			setPowerStateOff(*username, *password)
+			// FIXME: if main ssh port is active, turn off via "shutdown -h now" ssh command
 		}
 		log.Fatal("NYI!")
 	default:

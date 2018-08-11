@@ -4,9 +4,14 @@ package main
 
 import (
 	"fmt"
-	"golang.org/x/crypto/ssh"
 	"io"
 	"net"
+	"strconv"
+	"time"
+
+	"log"
+
+	"golang.org/x/crypto/ssh"
 )
 
 type Endpoint struct {
@@ -21,14 +26,14 @@ func (endpoint *Endpoint) String() string {
 }
 
 type SSHTunnel struct {
-	Local  *Endpoint
-	Server *Endpoint
-	Remote *Endpoint
+	Local    *Endpoint
+	Mediator *Endpoint
+	Remote   *Endpoint
 
 	Config *ssh.ClientConfig
 }
 
-func (tunnel *SSHTunnel) Start() error {
+func (tunnel *SSHTunnel) BlockingListen() error {
 	listener, err := net.Listen("tcp", tunnel.Local.String())
 	if err != nil {
 		return err
@@ -45,7 +50,7 @@ func (tunnel *SSHTunnel) Start() error {
 }
 
 func (tunnel *SSHTunnel) forward(localConn net.Conn) {
-	serverConn, err := ssh.Dial("tcp", tunnel.Server.String(), tunnel.Config)
+	serverConn, err := ssh.Dial("tcp", tunnel.Mediator.String(), tunnel.Config)
 	if err != nil {
 		fmt.Printf("Server dial error: %s\n", err)
 		return
@@ -66,4 +71,20 @@ func (tunnel *SSHTunnel) forward(localConn net.Conn) {
 
 	go copyConn(localConn, remoteConn)
 	go copyConn(remoteConn, localConn)
+}
+
+func (tunnel *SSHTunnel) Activate() {
+	log.Printf("Activating local port %v for tunnel to %+v", tunnel.Local.Port, tunnel.Remote)
+	go tunnel.BlockingListen()
+	tunnel.waitForLocalHostOpen()
+}
+
+func (tunnel *SSHTunnel) waitForLocalHostOpen() {
+	for {
+		conn, _ := net.DialTimeout("tcp", net.JoinHostPort("localhost", strconv.Itoa(tunnel.Local.Port)), 100*time.Millisecond)
+		if conn != nil {
+			conn.Close()
+			break
+		}
+	}
 }

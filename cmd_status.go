@@ -37,7 +37,7 @@ func getAmtStatus(username, password string) amt.Laststate {
 		SwUseTLS:      0,
 		Username:      username,
 		Password:      password,
-		Port:          localForwardedPort,
+		Port:          localAmtPort,
 	}
 	var client amt.Laststate
 	client.Hostname = "localhost"
