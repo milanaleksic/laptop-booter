@@ -1,4 +1,4 @@
-package main
+package laptop_booter
 
 // based on http://blog.ralch.com/tutorial/golang-ssh-tunneling/
 

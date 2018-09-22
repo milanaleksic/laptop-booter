@@ -1,4 +1,4 @@
-package main
+package laptop_booter
 
 import (
 	"net"

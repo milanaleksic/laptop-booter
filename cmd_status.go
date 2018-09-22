@@ -1,4 +1,4 @@
-package main
+package laptop_booter
 
 import (
 	"log"
@@ -33,7 +33,7 @@ var legacyPowerstateTextMap = map[int]string{
 	16: "unimplemented",
 }
 
-func getAmtStatus(username, password string) amt.Laststate {
+func getAmtStatus(username, password string, localAmtPort int) amt.Laststate {
 	log.Println("Fetching current AMT state")
 	options := amt.Optionset{
 		SwSkipcertchk: 1,

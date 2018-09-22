@@ -1,4 +1,4 @@
-package main
+package laptop_booter
 
 import (
 	"fmt"
@@ -6,7 +6,7 @@ import (
 	"github.com/milanaleksic/amtgo/amt"
 )
 
-func setPowerStateOff(username string, password string) {
+func setPowerStateOff(username string, password string, localAmtPort int) {
 	options := amt.Optionset{
 		SwSkipcertchk: 1,
 		SwUseTLS:      0,
