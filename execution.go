@@ -121,11 +121,12 @@ func Execute(c *Configuration) (output string, err error) {
 			log.Println("System's real SSH is already on, ignoring disk decryption voodoo")
 		} else {
 			log.Println("System's real SSH is not available, reaching out to dropbear to unlock")
-			dropbearConn := awaitSSHConnectivityViaLocalPort(c.LocalDropbearPort, "root", c.AgentConfiguration)
-			log.Printf("Dropbear active!")
-			if dropbearConn != nil {
-				defer dropbearConn.Close()
+			dropbearConn, err := awaitSSHConnectivityViaLocalPort(c.LocalDropbearPort, "root", c.AgentConfiguration)
+			if err != nil {
+				return "", errors.Wrap(err, "Dropbear connection could not be established!")
 			}
+			defer dropbearConn.Close()
+			log.Printf("Dropbear connection established!")
 			session, err := dropbearConn.NewSession()
 			if err != nil {
 				return "", errors.Wrap(err, "Failed to create new ssh session")
@@ -134,7 +135,10 @@ func Execute(c *Configuration) (output string, err error) {
 			if err != nil {
 				return "", errors.Wrap(err, "Failed to unlock the disk")
 			}
-			_ = awaitSSHConnectivityViaLocalPort(c.LocalRealSSHPort, c.RealSSHUsername, c.AgentConfiguration)
+			_, err = awaitSSHConnectivityViaLocalPort(c.LocalRealSSHPort, c.RealSSHUsername, c.AgentConfiguration)
+			if err != nil {
+				return "", errors.Wrap(err, "Failed to establish error to real SSH")
+			}
 			log.Printf("Real SSH active")
 		}
 		return "Success", nil
@@ -148,7 +152,10 @@ func Execute(c *Configuration) (output string, err error) {
 			log.Println("System is already turned off")
 		} else if singleCheckSSHConnectivityViaLocalPort(c.LocalRealSSHPort, c.RealSSHUsername, c.AgentConfiguration) {
 			log.Println("System's real SSH is already on, proceeding with SSH-driven turn off")
-			realSSHConn := awaitSSHConnectivityViaLocalPort(c.LocalRealSSHPort, c.RealSSHUsername, c.AgentConfiguration)
+			realSSHConn, err := awaitSSHConnectivityViaLocalPort(c.LocalRealSSHPort, c.RealSSHUsername, c.AgentConfiguration)
+			if err != nil {
+				return "", errors.Wrap(err, "Failed to establish error to real SSH")
+			}
 			defer realSSHConn.Close()
 			session, err := realSSHConn.NewSession()
 			if err != nil {

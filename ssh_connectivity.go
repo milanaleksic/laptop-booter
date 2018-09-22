@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/pkg/errors"
+
 	"golang.org/x/crypto/ssh"
 )
 
@@ -35,9 +37,10 @@ func singleCheckSSHConnectivityViaLocalPort(port int, user string, sshConfig *ss
 	}
 }
 
-func awaitSSHConnectivityViaLocalPort(port int, user string, sshConfig *ssh.ClientConfig) *ssh.Client {
+func awaitSSHConnectivityViaLocalPort(port int, user string, sshConfig *ssh.ClientConfig) (*ssh.Client, error) {
 	for {
 		response := make(chan *ssh.Client)
+		errChannel := make(chan error)
 		go func() {
 			var err error
 			sshConfigAdapted := *sshConfig
@@ -45,15 +48,17 @@ func awaitSSHConnectivityViaLocalPort(port int, user string, sshConfig *ssh.Clie
 			var serverConn *ssh.Client
 			serverConn, err = ssh.Dial("tcp", "localhost:"+strconv.Itoa(port), &sshConfigAdapted)
 			if err != nil {
-				log.Println("Unavailable SSH connectivity: ", port)
-				response <- nil
+				errChannel <- errors.Wrapf(err, "Unavailable SSH connectivity on port %d", port)
+			} else {
+				response <- serverConn
 			}
-			response <- serverConn
 		}()
 
 		select {
+		case e := <-errChannel:
+			return nil, e
 		case res := <-response:
-			return res
+			return res, nil
 		case <-time.After(sshConfig.Timeout):
 			log.Printf("Failed to establish the SSH connection to %d in reasonable time", port)
 			continue

@@ -52,20 +52,20 @@ func (tunnel *SSHTunnel) BlockingListen() error {
 func (tunnel *SSHTunnel) forward(localConn net.Conn) {
 	serverConn, err := ssh.Dial("tcp", tunnel.Mediator.String(), tunnel.Config)
 	if err != nil {
-		fmt.Printf("Server dial error: %s\n", err)
+		fmt.Printf("Server dial error to %s:%d, %s\n", tunnel.Remote.Host, tunnel.Remote.Port, err)
 		return
 	}
 
 	remoteConn, err := serverConn.Dial("tcp", tunnel.Remote.String())
 	if err != nil {
-		fmt.Printf("Remote dial error: %+v\n", err)
+		fmt.Printf("Remote dial error to %s:%d, %+v\n", tunnel.Remote.Host, tunnel.Remote.Port, err)
 		return
 	}
 
 	copyConn := func(writer, reader net.Conn) {
 		_, err := io.Copy(writer, reader)
 		if err != nil {
-			fmt.Printf("io.Copy error: %s", err)
+			fmt.Printf("io.Copy error to %s:%d, %s", tunnel.Remote.Host, tunnel.Remote.Port, err)
 		}
 	}
 
