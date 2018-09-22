@@ -74,7 +74,7 @@ func (tunnel *SSHTunnel) forward(localConn net.Conn) {
 }
 
 func (tunnel *SSHTunnel) Activate() {
-	log.Printf("Activating local port %v for tunnel to %+v", tunnel.Local.Port, tunnel.Remote)
+	log.Printf("Activating local port %v for tunnel to %v (user: %s)", tunnel.Local.Port, tunnel.Remote, tunnel.Config.User)
 	go tunnel.BlockingListen()
 	tunnel.waitForLocalHostOpen()
 }
