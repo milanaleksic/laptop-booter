@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"log"
 
-	"github.com/getlantern/errors"
+	"github.com/pkg/errors"
+
 	"golang.org/x/crypto/ssh"
 )
 
@@ -24,6 +25,7 @@ type Configuration struct {
 	LocalRealSSHPort   int
 	LocalAmtPort       int
 	LocalDropbearPort  int
+	AgentConfiguration *ssh.ClientConfig
 }
 
 const (
@@ -36,20 +38,21 @@ const (
 )
 
 func Execute(c *Configuration) (output string, err error) {
+	if c.AgentConfiguration == nil {
+		sshAgentCloser, sshConfig, err := SSHConfigFromAgent()
+		if err != nil {
+			return "", errors.Wrap(err, "Failed to create ssh configuration")
+		}
+		defer sshAgentCloser()
+		c.AgentConfiguration = sshConfig
+	}
 	bastion := &Endpoint{
 		Host: c.BastionHost,
 		Port: c.BastionPort,
 	}
 
-	// My use case: always demand ssh agent, no private local files allowed (I use Yubikey)
-	sshAgentCloser, sshConfig, err := SSHConfigFromAgent()
-	if err != nil {
-		log.Fatalf("Failed to create ssh configuration: %v", err)
-	}
-	defer sshAgentCloser()
-
 	amtTunnel := &SSHTunnel{
-		Config: sshConfig,
+		Config: c.AgentConfiguration,
 		Local: &Endpoint{
 			Host: "localhost",
 			Port: c.LocalAmtPort,
@@ -63,7 +66,7 @@ func Execute(c *Configuration) (output string, err error) {
 	amtTunnel.Activate()
 
 	dropbearTunnel := &SSHTunnel{
-		Config: sshConfig,
+		Config: c.AgentConfiguration,
 		Local: &Endpoint{
 			Host: "localhost",
 			Port: c.LocalDropbearPort,
@@ -77,7 +80,7 @@ func Execute(c *Configuration) (output string, err error) {
 	dropbearTunnel.Activate()
 
 	realSSHTunnel := &SSHTunnel{
-		Config: sshConfig,
+		Config: c.AgentConfiguration,
 		Local: &Endpoint{
 			Host: "localhost",
 			Port: c.LocalRealSSHPort,
@@ -95,14 +98,14 @@ func Execute(c *Configuration) (output string, err error) {
 		log.Println("Command chosen: show status")
 		status := getAmtStatus(c.Username, c.Password, c.LocalAmtPort)
 		if status.StateHTTP != 200 {
-			return "", errors.New("Wrong response code from server: %v", status.StateHTTP)
+			return "", errors.Errorf("Wrong response code from server: %v", status.StateHTTP)
 		}
 		return legacyPowerstateTextMap[status.StateAMT], nil
 	case CmdActivate:
 		log.Println("Command chosen: activate")
 		status := getAmtStatus(c.Username, c.Password, c.LocalAmtPort)
 		if status.StateHTTP != 200 {
-			return "", errors.New("Wrong response code from server when fetching status: %v", status.StateHTTP)
+			return "", errors.Errorf("Wrong response code from server when fetching status: %v", status.StateHTTP)
 		}
 		if status.StateAMT == amtStateOn {
 			log.Println("System is already on, ignoring poweron instruction")
@@ -111,19 +114,22 @@ func Execute(c *Configuration) (output string, err error) {
 			setPowerStateOn(c.Username, c.Password, c.LocalAmtPort)
 		}
 
-		if singleCheckSSHConnectivityViaLocalPort(c.LocalRealSSHPort, getCurrentUser(), sshConfig) {
+		if singleCheckSSHConnectivityViaLocalPort(c.LocalRealSSHPort, getCurrentUser(), c.AgentConfiguration) {
 			log.Println("System's real SSH is already on, ignoring disk decryption voodoo")
 		} else {
 			log.Println("System's real SSH is not available, reaching out to dropbear to unlock")
-			dropbearConn := awaitSSHConnectivityViaLocalPort(c.LocalDropbearPort, "root", sshConfig)
+			dropbearConn := awaitSSHConnectivityViaLocalPort(c.LocalDropbearPort, "root", c.AgentConfiguration)
 			log.Printf("Dropbear active!")
 			defer dropbearConn.Close()
 			session, err := dropbearConn.NewSession()
 			if err != nil {
-				log.Fatalf("Failed to create new ssh session: %v", err)
+				return "", errors.Wrap(err, "Failed to create new ssh session")
 			}
-			unlockDisk(c.DiskUnlockPassword, session)
-			_ = awaitSSHConnectivityViaLocalPort(c.LocalRealSSHPort, getCurrentUser(), sshConfig)
+			err := unlockDisk(c.DiskUnlockPassword, session)
+			if err != nil {
+				return "", errors.Wrap(err, "Failed to unlock the disk")
+			}
+			_ = awaitSSHConnectivityViaLocalPort(c.LocalRealSSHPort, getCurrentUser(), c.AgentConfiguration)
 			log.Printf("Real SSH active")
 		}
 		return "Success", nil
@@ -131,21 +137,21 @@ func Execute(c *Configuration) (output string, err error) {
 		log.Println("Command chosen: shutdown")
 		status := getAmtStatus(c.Username, c.Password, c.LocalAmtPort)
 		if status.StateHTTP != 200 {
-			return "", errors.New("Wrong response code from server when fetching status: %v", status.StateHTTP)
+			return "", errors.Errorf("Wrong response code from server when fetching status: %v", status.StateHTTP)
 		}
 		if status.StateAMT == amtStateSoftOff {
 			log.Println("System is already turned off")
-		} else if singleCheckSSHConnectivityViaLocalPort(c.LocalRealSSHPort, getCurrentUser(), sshConfig) {
+		} else if singleCheckSSHConnectivityViaLocalPort(c.LocalRealSSHPort, getCurrentUser(), c.AgentConfiguration) {
 			log.Println("System's real SSH is already on, proceeding with SSH-driven turn off")
-			realSSHConn := awaitSSHConnectivityViaLocalPort(c.LocalRealSSHPort, getCurrentUser(), sshConfig)
+			realSSHConn := awaitSSHConnectivityViaLocalPort(c.LocalRealSSHPort, getCurrentUser(), c.AgentConfiguration)
 			defer realSSHConn.Close()
 			session, err := realSSHConn.NewSession()
 			if err != nil {
-				log.Fatalf("Failed to create new ssh session: %v", err)
+				return "", errors.Wrap(err, "Failed to create new ssh session")
 			}
 			err = session.Start("sudo shutdown -h now")
 			if err != nil {
-				log.Fatalf("Shutdown call failed: %v", err)
+				return "", errors.Wrap(err, "Shutdown call failed")
 			}
 		} else {
 			log.Println("Activating AMT poweroff function")
@@ -153,18 +159,19 @@ func Execute(c *Configuration) (output string, err error) {
 		}
 		return "Success", nil
 	default:
-		return "", errors.New("Unknown command '%s'", c.Command)
+		return "", errors.Errorf("Unknown command '%s'", c.Command)
 	}
 }
 
-func unlockDisk(diskUnlockPassword string, session *ssh.Session) {
+func unlockDisk(diskUnlockPassword string, session *ssh.Session) error {
 	var b bytes.Buffer
 	b.WriteString(diskUnlockPassword)
 	session.Stdin = &b
 	log.Printf("Sending disk unlock password!")
 	output, err := session.CombinedOutput("cryptroot-unlock")
 	if err != nil {
-		log.Fatalf("Unlock call failed: %v", err)
+		return errors.Wrap(err, "Unlock call failed")
 	}
 	log.Println(string(output))
+	return nil
 }
