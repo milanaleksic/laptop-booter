@@ -12,12 +12,15 @@ import (
 type Configuration struct {
 	Username           string
 	Password           string
+	BastionUsername    string
 	BastionHost        string
 	BastionPort        int
 	AmtHost            string
 	AmtPort            int
+	DropbearUsername   string
 	DropbearHost       string
 	DropbearPort       int
+	RealSSHUsername    string
 	RealSSHHost        string
 	RealSSHPort        int
 	DiskUnlockPassword string
@@ -39,7 +42,7 @@ const (
 
 func Execute(c *Configuration) (output string, err error) {
 	if c.AgentConfiguration == nil {
-		sshAgentCloser, sshConfig, err := SSHConfigFromAgent()
+		sshAgentCloser, sshConfig, err := SSHConfigFromAgent(c.BastionUsername)
 		if err != nil {
 			return "", errors.Wrap(err, "Failed to create ssh configuration")
 		}
@@ -114,7 +117,7 @@ func Execute(c *Configuration) (output string, err error) {
 			setPowerStateOn(c.Username, c.Password, c.LocalAmtPort)
 		}
 
-		if singleCheckSSHConnectivityViaLocalPort(c.LocalRealSSHPort, getCurrentUser(), c.AgentConfiguration) {
+		if singleCheckSSHConnectivityViaLocalPort(c.LocalRealSSHPort, c.RealSSHUsername, c.AgentConfiguration) {
 			log.Println("System's real SSH is already on, ignoring disk decryption voodoo")
 		} else {
 			log.Println("System's real SSH is not available, reaching out to dropbear to unlock")
@@ -129,7 +132,7 @@ func Execute(c *Configuration) (output string, err error) {
 			if err != nil {
 				return "", errors.Wrap(err, "Failed to unlock the disk")
 			}
-			_ = awaitSSHConnectivityViaLocalPort(c.LocalRealSSHPort, getCurrentUser(), c.AgentConfiguration)
+			_ = awaitSSHConnectivityViaLocalPort(c.LocalRealSSHPort, c.RealSSHUsername, c.AgentConfiguration)
 			log.Printf("Real SSH active")
 		}
 		return "Success", nil
@@ -141,9 +144,9 @@ func Execute(c *Configuration) (output string, err error) {
 		}
 		if status.StateAMT == amtStateSoftOff {
 			log.Println("System is already turned off")
-		} else if singleCheckSSHConnectivityViaLocalPort(c.LocalRealSSHPort, getCurrentUser(), c.AgentConfiguration) {
+		} else if singleCheckSSHConnectivityViaLocalPort(c.LocalRealSSHPort, c.RealSSHUsername, c.AgentConfiguration) {
 			log.Println("System's real SSH is already on, proceeding with SSH-driven turn off")
-			realSSHConn := awaitSSHConnectivityViaLocalPort(c.LocalRealSSHPort, getCurrentUser(), c.AgentConfiguration)
+			realSSHConn := awaitSSHConnectivityViaLocalPort(c.LocalRealSSHPort, c.RealSSHUsername, c.AgentConfiguration)
 			defer realSSHConn.Close()
 			session, err := realSSHConn.NewSession()
 			if err != nil {

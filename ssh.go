@@ -58,7 +58,7 @@ func (tunnel *SSHTunnel) forward(localConn net.Conn) {
 
 	remoteConn, err := serverConn.Dial("tcp", tunnel.Remote.String())
 	if err != nil {
-		fmt.Printf("Remote dial error: %s\n", err)
+		fmt.Printf("Remote dial error: %+v\n", err)
 		return
 	}
 
