@@ -56,7 +56,7 @@ func awaitSSHConnectivityViaLocalPort(port int, user string, sshConfig *ssh.Clie
 
 		select {
 		case e := <-errChannel:
-			return nil, e
+			log.Printf("Failed to establish the SSH connection: %v", e)
 		case res := <-response:
 			return res, nil
 		case <-time.After(sshConfig.Timeout):
