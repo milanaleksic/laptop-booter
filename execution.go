@@ -123,7 +123,9 @@ func Execute(c *Configuration) (output string, err error) {
 			log.Println("System's real SSH is not available, reaching out to dropbear to unlock")
 			dropbearConn := awaitSSHConnectivityViaLocalPort(c.LocalDropbearPort, "root", c.AgentConfiguration)
 			log.Printf("Dropbear active!")
-			defer dropbearConn.Close()
+			if dropbearConn != nil {
+				defer dropbearConn.Close()
+			}
 			session, err := dropbearConn.NewSession()
 			if err != nil {
 				return "", errors.Wrap(err, "Failed to create new ssh session")
