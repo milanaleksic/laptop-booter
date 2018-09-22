@@ -125,7 +125,7 @@ func Execute(c *Configuration) (output string, err error) {
 			if err != nil {
 				return "", errors.Wrap(err, "Failed to create new ssh session")
 			}
-			err := unlockDisk(c.DiskUnlockPassword, session)
+			err = unlockDisk(c.DiskUnlockPassword, session)
 			if err != nil {
 				return "", errors.Wrap(err, "Failed to unlock the disk")
 			}
