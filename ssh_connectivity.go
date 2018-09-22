@@ -38,7 +38,8 @@ func singleCheckSSHConnectivityViaLocalPort(port int, user string, sshConfig *ss
 }
 
 func awaitSSHConnectivityViaLocalPort(port int, user string, sshConfig *ssh.ClientConfig) (*ssh.Client, error) {
-	for {
+	failureCount := 0
+	for failureCount < 50 {
 		response := make(chan *ssh.Client)
 		errChannel := make(chan error)
 		go func() {
@@ -55,13 +56,18 @@ func awaitSSHConnectivityViaLocalPort(port int, user string, sshConfig *ssh.Clie
 		}()
 
 		select {
-		case e := <-errChannel:
-			log.Printf("Failed to establish the SSH connection: %v", e)
 		case res := <-response:
 			return res, nil
+		case e := <-errChannel:
+			failureCount += 1
+			log.Printf("Failed to establish the SSH connection: %v", e)
+			time.Sleep(sshConfig.Timeout)
+			continue
 		case <-time.After(sshConfig.Timeout):
+			failureCount += 1
 			log.Printf("Failed to establish the SSH connection to %d in reasonable time", port)
 			continue
 		}
 	}
+	return nil, errors.New("All retries spent in the SSH connectivity background thread")
 }
