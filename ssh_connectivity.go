@@ -1,11 +1,10 @@
 package laptop_booter
 
 import (
+	"fmt"
 	"log"
 	"strconv"
 	"time"
-
-	"github.com/pkg/errors"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -49,7 +48,7 @@ func awaitSSHConnectivityViaLocalPort(port int, user string, sshConfig *ssh.Clie
 			var serverConn *ssh.Client
 			serverConn, err = ssh.Dial("tcp", "localhost:"+strconv.Itoa(port), &sshConfigAdapted)
 			if err != nil {
-				errChannel <- errors.Wrapf(err, "Unavailable SSH connectivity on port %d", port)
+				errChannel <- fmt.Errorf("unavailable SSH connectivity on port %d: %w", port, err)
 			} else {
 				response <- serverConn
 			}
@@ -69,5 +68,5 @@ func awaitSSHConnectivityViaLocalPort(port int, user string, sshConfig *ssh.Clie
 			continue
 		}
 	}
-	return nil, errors.New("All retries spent in the SSH connectivity background thread")
+	return nil, fmt.Errorf("all retries spent in the SSH connectivity background thread")
 }

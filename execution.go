@@ -2,9 +2,8 @@ package laptop_booter
 
 import (
 	"bytes"
+	"fmt"
 	"log"
-
-	"github.com/pkg/errors"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -44,7 +43,7 @@ func Execute(c *Configuration) (output string, err error) {
 	if c.AgentConfiguration == nil {
 		sshAgentCloser, sshConfig, err := SSHConfigFromAgent(c.BastionUsername)
 		if err != nil {
-			return "", errors.Wrap(err, "Failed to create ssh configuration")
+			return "", fmt.Errorf("failed to create ssh configuration: %w", err)
 		}
 		defer sshAgentCloser()
 		c.AgentConfiguration = sshConfig
@@ -101,14 +100,14 @@ func Execute(c *Configuration) (output string, err error) {
 		log.Println("Command chosen: show status")
 		status := getAmtStatus(c.Username, c.Password, c.LocalAmtPort)
 		if status.StateHTTP != 200 {
-			return "", errors.Errorf("Wrong response code from server: %v", status.StateHTTP)
+			return "", fmt.Errorf("Wrong response code from server: %w", status.StateHTTP)
 		}
 		return legacyPowerstateTextMap[status.StateAMT], nil
 	case CmdActivate:
 		log.Println("Command chosen: activate")
 		status := getAmtStatus(c.Username, c.Password, c.LocalAmtPort)
 		if status.StateHTTP != 200 {
-			return "", errors.Errorf("Wrong response code from server when fetching status: %v", status.StateHTTP)
+			return "", fmt.Errorf("Wrong response code from server when fetching status: %v", status.StateHTTP)
 		}
 		if status.StateAMT == amtStateOn {
 			log.Println("System is already on, ignoring poweron instruction")
@@ -123,21 +122,21 @@ func Execute(c *Configuration) (output string, err error) {
 			log.Println("System's real SSH is not available, reaching out to dropbear to unlock")
 			dropbearConn, err := awaitSSHConnectivityViaLocalPort(c.LocalDropbearPort, "root", c.AgentConfiguration)
 			if err != nil {
-				return "", errors.Wrap(err, "Dropbear connection could not be established!")
+				return "", fmt.Errorf("Dropbear connection could not be established!: %w", err)
 			}
 			defer dropbearConn.Close()
 			log.Printf("Dropbear connection established!")
 			session, err := dropbearConn.NewSession()
 			if err != nil {
-				return "", errors.Wrap(err, "Failed to create new ssh session")
+				return "", fmt.Errorf("Failed to create new ssh session: %w", err)
 			}
 			err = unlockDisk(c.DiskUnlockPassword, session)
 			if err != nil {
-				return "", errors.Wrap(err, "Failed to unlock the disk")
+				return "", fmt.Errorf("Failed to unlock the disk: %w", err)
 			}
 			_, err = awaitSSHConnectivityViaLocalPort(c.LocalRealSSHPort, c.RealSSHUsername, c.AgentConfiguration)
 			if err != nil {
-				return "", errors.Wrap(err, "Failed to establish error to real SSH")
+				return "", fmt.Errorf("Failed to establish error to real SSH: %w", err)
 			}
 			log.Printf("Real SSH active")
 		}
@@ -146,7 +145,7 @@ func Execute(c *Configuration) (output string, err error) {
 		log.Println("Command chosen: shutdown")
 		status := getAmtStatus(c.Username, c.Password, c.LocalAmtPort)
 		if status.StateHTTP != 200 {
-			return "", errors.Errorf("Wrong response code from server when fetching status: %v", status.StateHTTP)
+			return "", fmt.Errorf("Wrong response code from server when fetching status: %v", status.StateHTTP)
 		}
 		if status.StateAMT == amtStateSoftOff {
 			log.Println("System is already turned off")
@@ -154,16 +153,16 @@ func Execute(c *Configuration) (output string, err error) {
 			log.Println("System's real SSH is already on, proceeding with SSH-driven turn off")
 			realSSHConn, err := awaitSSHConnectivityViaLocalPort(c.LocalRealSSHPort, c.RealSSHUsername, c.AgentConfiguration)
 			if err != nil {
-				return "", errors.Wrap(err, "Failed to establish error to real SSH")
+				return "", fmt.Errorf("Failed to establish error to real SSH: %w", err)
 			}
 			defer realSSHConn.Close()
 			session, err := realSSHConn.NewSession()
 			if err != nil {
-				return "", errors.Wrap(err, "Failed to create new ssh session")
+				return "", fmt.Errorf("Failed to create new ssh session: %w", err)
 			}
 			err = session.Start("sudo shutdown -h now")
 			if err != nil {
-				return "", errors.Wrap(err, "Shutdown call failed")
+				return "", fmt.Errorf("Shutdown call failed: %w", err)
 			}
 		} else {
 			log.Println("Activating AMT poweroff function")
@@ -171,7 +170,7 @@ func Execute(c *Configuration) (output string, err error) {
 		}
 		return "Success", nil
 	default:
-		return "", errors.Errorf("Unknown command '%s'", c.Command)
+		return "", fmt.Errorf("Unknown command '%s'", c.Command)
 	}
 }
 
@@ -182,7 +181,7 @@ func unlockDisk(diskUnlockPassword string, session *ssh.Session) error {
 	log.Printf("Sending disk unlock password!")
 	output, err := session.CombinedOutput("cryptroot-unlock")
 	if err != nil {
-		return errors.Wrap(err, "Unlock call failed")
+		return fmt.Errorf("Unlock call failed: %w", err)
 	}
 	log.Println(string(output))
 	return nil
