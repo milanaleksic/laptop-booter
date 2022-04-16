@@ -12,7 +12,6 @@ func main() {
 	localUser := getCurrentUser()
 	username := flag.String("username", "", "Username for the AMT interface")
 	password := flag.String("password", "", "Password for the AMT interface")
-	// FIXME: should be optional following two, meaning direct access available
 	bastionUsername := flag.String("bastionUsername", localUser, "Bastion SSH username")
 	bastionHost := flag.String("bastionHost", "", "Bastion hostname")
 	bastionPort := flag.Int("bastionPort", 22, "Bastion port")

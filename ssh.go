@@ -25,6 +25,10 @@ func (endpoint *Endpoint) String() string {
 	return fmt.Sprintf("%s:%d", endpoint.Host, endpoint.Port)
 }
 
+func (endpoint *Endpoint) IsSet() bool {
+	return endpoint.Host != ""
+}
+
 type SSHTunnel struct {
 	Local    *Endpoint
 	Mediator *Endpoint
@@ -50,13 +54,20 @@ func (tunnel *SSHTunnel) BlockingListen() error {
 }
 
 func (tunnel *SSHTunnel) forward(localConn net.Conn) {
-	serverConn, err := ssh.Dial("tcp", tunnel.Mediator.String(), tunnel.Config)
-	if err != nil {
-		fmt.Printf("Server dial error to %s:%d, %s\n", tunnel.Remote.Host, tunnel.Remote.Port, err)
-		return
+	var remoteConn net.Conn
+	var err error
+	if tunnel.Mediator.IsSet() {
+		serverConn, err := ssh.Dial("tcp", tunnel.Mediator.String(), tunnel.Config)
+		if err != nil {
+			fmt.Printf("Server dial error to %s:%d, %s\n", tunnel.Remote.Host, tunnel.Remote.Port, err)
+			return
+		}
+
+		remoteConn, err = serverConn.Dial("tcp", tunnel.Remote.String())
+	} else {
+		remoteConn, err = net.Dial("tcp", tunnel.Remote.String())
 	}
 
-	remoteConn, err := serverConn.Dial("tcp", tunnel.Remote.String())
 	if err != nil {
 		fmt.Printf("Remote dial error to %s:%d, %+v\n", tunnel.Remote.Host, tunnel.Remote.Port, err)
 		return
